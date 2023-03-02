@@ -27,13 +27,17 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#ifndef _MSC_VER
 #include <unistd.h>
+#endif
 #include <string.h>
 #include <getopt.h>
 #include <inttypes.h>
 #include <libirecovery.h>
+#ifndef _MSC_VER
 #include <readline/readline.h>
 #include <readline/history.h>
+#endif
 
 #ifdef WIN32
 #include <windows.h>

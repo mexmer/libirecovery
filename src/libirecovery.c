@@ -29,7 +29,9 @@
 #include <string.h>
 #include <inttypes.h>
 #include <ctype.h>
+#ifndef _MSC_VER
 #include <unistd.h>
+#endif
 #include <sys/stat.h>
 
 #include <libimobiledevice-glue/collection.h>
@@ -57,7 +59,7 @@
 #endif
 #endif
 
-#ifdef WIN32
+#if defined(WIN32) && defined(_WINDLL)
 #define IRECV_API __declspec( dllexport )
 #else
 #ifdef HAVE_FVISIBILITY
@@ -489,7 +491,7 @@ static void __attribute__((destructor)) libirecovery_deinitialize(void)
 {
 	thread_once(&deinit_once, _irecv_deinit);
 }
-#elif defined(WIN32)
+#elif defined(WIN32) && defined(_WINDLL)
 BOOL WINAPI DllMain(HINSTANCE hModule, DWORD dwReason, LPVOID lpReserved)
 {
 	switch (dwReason) {
@@ -505,7 +507,11 @@ BOOL WINAPI DllMain(HINSTANCE hModule, DWORD dwReason, LPVOID lpReserved)
 	return 1;
 }
 #else
-#warning No compiler support for constructor/destructor attributes, some features might not be available.
+#ifdef _MSC_VER
+#pragma message("No compiler support for constructor/destructor attributes, some features might not be available.")
+#else
+#warning No compiler support for constructor / destructor attributes, some features might not be available.
+#endif
 #endif
 
 #ifdef HAVE_IOKIT
@@ -789,15 +795,20 @@ irecv_error_t mobiledevice_connect(irecv_client_t* client, uint64_t ecid) {
 	memset(&currentInterface, '\0', sizeof(SP_DEVICE_INTERFACE_DATA));
 	currentInterface.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
 	for(i = 0; usbDevices && SetupDiEnumDeviceInterfaces(usbDevices, NULL, &GUID_DEVINTERFACE_DFU, i, &currentInterface); i++) {
+		if (_client == NULL)
+		{
+			_client = (irecv_client_t)malloc(sizeof(struct irecv_client_private));
+			memset(_client, 0, sizeof(struct irecv_client_private));
+		}
 		free(_client->DfuPath);
 		_client->DfuPath = NULL;
 		_client->handle = NULL;
 		DWORD requiredSize = 0;
-		PSP_DEVICE_INTERFACE_DETAIL_DATA details;
-		SetupDiGetDeviceInterfaceDetail(usbDevices, &currentInterface, NULL, 0, &requiredSize, NULL);
-		details = (PSP_DEVICE_INTERFACE_DETAIL_DATA) malloc(requiredSize);
-		details->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
-		if(!SetupDiGetDeviceInterfaceDetail(usbDevices, &currentInterface, details, requiredSize, NULL, NULL)) {
+		PSP_DEVICE_INTERFACE_DETAIL_DATA_A details;
+		SetupDiGetDeviceInterfaceDetailA(usbDevices, &currentInterface, NULL, 0, &requiredSize, NULL);
+		details = (PSP_DEVICE_INTERFACE_DETAIL_DATA_A) malloc(requiredSize);
+		details->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_A);
+		if(!SetupDiGetDeviceInterfaceDetailA(usbDevices, &currentInterface, details, requiredSize, NULL, NULL)) {
 			free(details);
 			continue;
 		} else {
@@ -834,29 +845,38 @@ irecv_error_t mobiledevice_connect(irecv_client_t* client, uint64_t ecid) {
 			while ((p = strstr(p, "\\usb"))) {
 				if (sscanf(p, "\\usb#vid_%*04x&pid_%*04x#%s", serial_str) == 1)
 					break;
+				if (sscanf(p, "\\usb#vid_%*04x&pid_%*04x&mi_%*02x#%s", serial_str) == 1)
+					break;
 				p += 4;
 			}
 
-			if (serial_str[0] == '\0') {
+			if (serial_str[0] == '\0') {				
 				mobiledevice_closepipes(_client);
 				continue;
 			}
 
-			p = strchr(serial_str, '#');
+			char * confstr = strstr(serial_str, "#sdom");
+			if (confstr == NULL) {
+				mobiledevice_closepipes(_client);
+				continue;
+			}
+			confstr++;
+
+			p = strchr(confstr, '#');
 			if (p) {
 				*p = '\0';
 			}
 
 			unsigned int j;
-			for (j = 0; j < strlen(serial_str); j++) {
-				if (serial_str[j] == '_') {
-					serial_str[j] = ' ';
+			for (j = 0; j < strlen(confstr); j++) {
+				if (confstr[j] == '_') {
+					confstr[j] = ' ';
 				} else {
-					serial_str[j] = toupper(serial_str[j]);
+					confstr[j] = toupper(confstr[j]);
 				}
 			}
 
-			irecv_load_device_info_from_iboot_string(_client, serial_str);
+			irecv_load_device_info_from_iboot_string(_client, confstr);
 			irecv_copy_nonce_with_tag(_client, "NONC", &_client->device_info.ap_nonce, &_client->device_info.ap_nonce_size);
 			irecv_copy_nonce_with_tag(_client, "SNON", &_client->device_info.sep_nonce, &_client->device_info.sep_nonce_size);
 
@@ -887,11 +907,11 @@ irecv_error_t mobiledevice_connect(irecv_client_t* client, uint64_t ecid) {
 		_client->iBootPath = NULL;
 		_client->handle = NULL;
 		DWORD requiredSize = 0;
-		PSP_DEVICE_INTERFACE_DETAIL_DATA details;
-		SetupDiGetDeviceInterfaceDetail(usbDevices, &currentInterface, NULL, 0, &requiredSize, NULL);
-		details = (PSP_DEVICE_INTERFACE_DETAIL_DATA) malloc(requiredSize);
-		details->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
-		if(!SetupDiGetDeviceInterfaceDetail(usbDevices, &currentInterface, details, requiredSize, NULL, NULL)) {
+		PSP_DEVICE_INTERFACE_DETAIL_DATA_A details;
+		SetupDiGetDeviceInterfaceDetailA(usbDevices, &currentInterface, NULL, 0, &requiredSize, NULL);
+		details = (PSP_DEVICE_INTERFACE_DETAIL_DATA_A) malloc(requiredSize);
+		details->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_A);
+		if(!SetupDiGetDeviceInterfaceDetailA(usbDevices, &currentInterface, details, requiredSize, NULL, NULL)) {
 			free(details);
 			continue;
 		} else {
@@ -968,12 +988,12 @@ irecv_error_t mobiledevice_connect(irecv_client_t* client, uint64_t ecid) {
 }
 
 irecv_error_t mobiledevice_openpipes(irecv_client_t client) {
-	if (client->iBootPath && !(client->hIB = CreateFile(client->iBootPath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL))) {
+	if (client->iBootPath && !(client->hIB = CreateFileA(client->iBootPath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL))) {
 		irecv_close(client);
 		return IRECV_E_UNABLE_TO_CONNECT;
 	}
 
-	if (client->DfuPath && !(client->hDFU = CreateFile(client->DfuPath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL))) {
+	if (client->DfuPath && !(client->hDFU = CreateFileA(client->DfuPath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL))) {
 		irecv_close(client);
 		return IRECV_E_UNABLE_TO_CONNECT;
 	}
@@ -1000,13 +1020,16 @@ irecv_error_t mobiledevice_openpipes(irecv_client_t client) {
 }
 
 void mobiledevice_closepipes(irecv_client_t client) {
-	if (client->hDFU!=NULL) {
-		CloseHandle(client->hDFU);
-		client->hDFU = NULL;
-	}
-	if (client->hIB!=NULL) {
-		CloseHandle(client->hIB);
-		client->hIB = NULL;
+	if (client)
+	{
+		if (client->hDFU != NULL) {
+			CloseHandle(client->hDFU);
+			client->hDFU = NULL;
+		}
+		if (client->hIB != NULL) {
+			CloseHandle(client->hIB);
+			client->hIB = NULL;
+		}
 	}
 }
 #endif
@@ -1861,7 +1884,7 @@ struct irecv_usb_device_info {
 
 #ifdef WIN32
 struct irecv_win_dev_ctx {
-	PSP_DEVICE_INTERFACE_DETAIL_DATA details;
+	PSP_DEVICE_INTERFACE_DETAIL_DATA_A details;
 	uint32_t location;
 };
 #else
@@ -1935,7 +1958,7 @@ static void* _irecv_handle_device_add(void *userdata)
 	serial_str[0] = '\0';
 #ifdef WIN32
 	struct irecv_win_dev_ctx *win_ctx = (struct irecv_win_dev_ctx*)userdata;
-	PSP_DEVICE_INTERFACE_DETAIL_DATA details = win_ctx->details;
+	PSP_DEVICE_INTERFACE_DETAIL_DATA_A details = win_ctx->details;
 	LPSTR result = (LPSTR)details->DevicePath;
 	location = win_ctx->location;
 
@@ -2224,13 +2247,13 @@ static void *_irecv_event_handler(void* data)
 			currentInterface.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
 			for (i = 0; usbDevices && SetupDiEnumDeviceInterfaces(usbDevices, NULL, guids[k], i, &currentInterface); i++) {
 				DWORD requiredSize = 0;
-				PSP_DEVICE_INTERFACE_DETAIL_DATA details;
+				PSP_DEVICE_INTERFACE_DETAIL_DATA_A details;
 				SetupDiGetDeviceInterfaceDetail(usbDevices, &currentInterface, NULL, 0, &requiredSize, NULL);
-				details = (PSP_DEVICE_INTERFACE_DETAIL_DATA) malloc(requiredSize);
-				details->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
+				details = (PSP_DEVICE_INTERFACE_DETAIL_DATA_A) malloc(requiredSize);
+				details->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_A);
 				SP_DEVINFO_DATA devinfodata;
 				devinfodata.cbSize = sizeof(SP_DEVINFO_DATA);
-				if(!SetupDiGetDeviceInterfaceDetail(usbDevices, &currentInterface, details, requiredSize, NULL, &devinfodata)) {
+				if(!SetupDiGetDeviceInterfaceDetailA(usbDevices, &currentInterface, details, requiredSize, NULL, &devinfodata)) {
 					free(details);
 					continue;
 				}
@@ -2238,7 +2261,7 @@ static void *_irecv_event_handler(void* data)
 				DWORD sz = REG_SZ;
 				char driver[256];
 				driver[0] = '\0';
-				if (!SetupDiGetDeviceRegistryProperty(usbDevices, &devinfodata, SPDRP_DRIVER, &sz, (PBYTE)driver, sizeof(driver), NULL)) {
+				if (!SetupDiGetDeviceRegistryPropertyA(usbDevices, &devinfodata, SPDRP_DRIVER, &sz, (PBYTE)driver, sizeof(driver), NULL)) {
 					debug("%s: ERROR: Failed to get driver key\n", __func__);
 					free(details);
 					continue;
@@ -3351,6 +3374,12 @@ IRECV_API irecv_error_t irecv_devices_get_device_by_product_type(const char* pro
 
 	return IRECV_E_NO_DEVICE;
 }
+
+#ifdef _MSC_VER 
+//not #if defined(_WIN32) || defined(_WIN64) because we have strncasecmp in mingw
+#define strncasecmp _strnicmp
+#define strcasecmp _stricmp
+#endif
 
 IRECV_API irecv_error_t irecv_devices_get_device_by_hardware_model(const char* hardware_model, irecv_device_t* device) {
 	int i = 0;
